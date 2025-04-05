@@ -1,0 +1,267 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Alien Blaster - Multiplayer</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    canvas { background: black; display: block; }
+    #score, #opponentScore {
+      position: absolute; top: 10px; color: white; font-size: 20px;
+    }
+    #score { left: 10px; }
+    #opponentScore { right: 10px; }
+    #clear, #waiting {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      color: white; font-size: 30px; display: none;
+    }
+    #retryBtn {
+      position: absolute; top: 60%; left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 20px; padding: 10px 20px; display: none;
+    }
+  </style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<div id="score">Score: 0</div>
+<div id="opponentScore">Opponent: 0</div>
+<div id="clear">Clear!</div>
+<div id="waiting">상대방을 기다리는 중...</div>
+<button id="retryBtn">Retry</button>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
+import { getDatabase, ref, set, onValue, remove, get } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBGE7mWUDMcA8u4yclWsCtvGbzjojvUgAE",
+  authDomain: "easylogin-63aa9.firebaseapp.com",
+  databaseURL: "https://easylogin-63aa9-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "easylogin-63aa9",
+  storageBucket: "easylogin-63aa9.appspot.com",
+  messagingSenderId: "730585187202",
+  appId: "1:730585187202:web:5196b346c5bc80cdb3459b"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+const roomId = prompt("방 번호를 입력하거나 새로 만들 번호를 입력하세요:");
+const playerId = Math.random().toString(36).substring(2, 10);
+let opponentId = null;
+
+const roomRef = ref(db, 'rooms/' + roomId);
+let score = 0;
+let gameOver = false;
+let resultShown = false;
+let gameStarted = false;
+
+get(roomRef).then(snapshot => {
+  const data = snapshot.val();
+  if (!data) {
+    set(roomRef, { players: { [playerId]: { score: 0, gameOver: false } } });
+  } else if (Object.keys(data.players || {}).length === 1) {
+    set(ref(db, `rooms/${roomId}/players/${playerId}`), { score: 0, gameOver: false });
+  } else {
+    alert("방이 가득 찼습니다.");
+    throw new Error("Room Full");
+  }
+});
+
+onValue(roomRef, snapshot => {
+  const data = snapshot.val();
+  const players = data?.players || {};
+  const ids = Object.keys(players);
+
+  if (ids.length < 2) {
+    document.getElementById('waiting').style.display = 'block';
+  } else {
+    document.getElementById('waiting').style.display = 'none';
+    if (!gameStarted) resetGame();
+  }
+
+  ids.forEach(id => {
+    if (id !== playerId) {
+      opponentId = id;
+      const oppScore = players[id]?.score || 0;
+      document.getElementById('opponentScore').textContent = `Opponent: ${oppScore}`;
+    }
+  });
+
+  if (Object.values(players).filter(p => p.gameOver).length === 2 && !resultShown) {
+    resultShown = true;
+    const myScore = players[playerId]?.score || 0;
+    const oppScore = players[opponentId]?.score || 0;
+
+    if (myScore > oppScore) {
+      document.getElementById('clear').textContent = 'You Win!';
+    } else if (myScore < oppScore) {
+      document.getElementById('clear').textContent = 'You Lose!';
+    } else {
+      document.getElementById('clear').textContent = 'Draw!';
+    }
+    clearGameState();
+    remove(roomRef);
+  }
+});
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+const ship = { x: canvas.width / 2 - 20, y: canvas.height - 60, width: 40, height: 60 };
+let bullets = [], enemyBullets = [], enemies = [];
+
+let enemySpeed = 0.5, speedIncreaseRate = 0.01;
+let enemyInterval, bulletInterval, enemyBulletInterval, speedInterval, patternChangeInterval;
+
+function drawShip() {
+  ctx.fillStyle = 'blue';
+  ctx.fillRect(ship.x, ship.y, ship.width, ship.height);
+}
+function createBullet() {
+  bullets.push({ x: ship.x + ship.width / 2 - 2.5, y: ship.y, width: 5, height: 20 });
+}
+function drawBullets() {
+  ctx.fillStyle = 'red';
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const b = bullets[i];
+    b.y -= 12;
+    ctx.fillRect(b.x, b.y, b.width, b.height);
+    if (b.y < 0) bullets.splice(i, 1);
+  }
+}
+function createEnemy() {
+  const size = Math.random() * 30 + 20;
+  enemies.push({
+    x: Math.random() * (canvas.width - size),
+    y: -size, width: size, height: size,
+    speed: enemySpeed, pattern: 'vertical',
+    zigzagDirection: Math.random() < 0.5 ? -1 : 1,
+    zigzagSpeed: 0.8
+  });
+}
+function drawEnemies() {
+  ctx.fillStyle = 'green';
+  enemies.forEach((e, i) => {
+    if (e.pattern === 'vertical') e.y += e.speed;
+    else {
+      e.y += e.speed;
+      e.x += e.zigzagDirection * e.zigzagSpeed;
+      if (e.x < 0 || e.x + e.width > canvas.width) e.zigzagDirection *= -1;
+    }
+    ctx.fillRect(e.x, e.y, e.width, e.height);
+    if (e.y > canvas.height) endGame();
+  });
+}
+function createEnemyBullet(e) {
+  if (Math.random() < 0.25) {
+    enemyBullets.push({
+      x: e.x + e.width / 2 - 2.5,
+      y: e.y + e.height,
+      width: 5,
+      height: 20
+    });
+  }
+}
+function drawEnemyBullets() {
+  ctx.fillStyle = 'yellow';
+  for (let i = enemyBullets.length - 1; i >= 0; i--) {
+    const b = enemyBullets[i];
+    b.y += 1.5;
+    ctx.fillRect(b.x, b.y, b.width, b.height);
+    if (b.y > canvas.height) enemyBullets.splice(i, 1);
+  }
+}
+function checkCollisions() {
+  for (let ei = enemies.length - 1; ei >= 0; ei--) {
+    const e = enemies[ei];
+    for (let bi = bullets.length - 1; bi >= 0; bi--) {
+      const b = bullets[bi];
+      if (b.x < e.x + e.width && b.x + b.width > e.x &&
+          b.y < e.y + e.height && b.y + b.height > e.y) {
+        bullets.splice(bi, 1);
+        enemies.splice(ei, 1);
+        score += 10;
+        document.getElementById('score').textContent = `Score: ${score}`;
+        set(ref(db, `rooms/${roomId}/players/${playerId}/score`), score);
+        break;
+      }
+    }
+    if (ship.x < e.x + e.width && ship.x + ship.width > e.x &&
+        ship.y < e.y + e.height && ship.y + ship.height > e.y) endGame();
+  }
+
+  for (let i = enemyBullets.length - 1; i >= 0; i--) {
+    const b = enemyBullets[i];
+    if (b.x < ship.x + ship.width && b.x + b.width > ship.x &&
+        b.y < ship.y + ship.height && b.y + b.height > ship.y) endGame();
+  }
+}
+function endGame() {
+  if (gameOver) return;
+  gameOver = true;
+  set(ref(db, `rooms/${roomId}/players/${playerId}/gameOver`), true);
+  document.getElementById('retryBtn').style.display = 'block';
+  stopAllIntervals();
+}
+function clearGameState() {
+  document.getElementById('clear').style.display = 'block';
+  document.getElementById('retryBtn').style.display = 'block';
+  stopAllIntervals();
+}
+function stopAllIntervals() {
+  clearInterval(enemyInterval);
+  clearInterval(bulletInterval);
+  clearInterval(enemyBulletInterval);
+  clearInterval(speedInterval);
+  clearInterval(patternChangeInterval);
+}
+function resetGame() {
+  gameStarted = true;
+  score = 0; bullets = []; enemies = []; enemyBullets = [];
+  ship.x = canvas.width / 2 - 20;
+  document.getElementById('score').textContent = `Score: ${score}`;
+  document.getElementById('clear').style.display = 'none';
+  document.getElementById('retryBtn').style.display = 'none';
+  set(ref(db, `rooms/${roomId}/players/${playerId}`), { score: 0, gameOver: false });
+  enemyInterval = setInterval(createEnemy, 2000);
+  bulletInterval = setInterval(createBullet, 800);
+  enemyBulletInterval = setInterval(() => enemies.forEach(e => createEnemyBullet(e)), 1500);
+  speedInterval = setInterval(() => enemySpeed += 0.01, 1000);
+  patternChangeInterval = setInterval(() => enemies.forEach(e => e.pattern = Math.random() < 0.5 ? 'vertical' : 'zigzag'), 3000);
+  gameLoop();
+}
+function gameLoop() {
+  if (gameOver || resultShown) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawShip(); drawBullets(); drawEnemies(); drawEnemyBullets(); checkCollisions();
+  requestAnimationFrame(gameLoop);
+}
+
+document.getElementById('retryBtn').addEventListener('click', () => location.reload());
+
+let touchX, touchY;
+canvas.addEventListener('touchstart', e => {
+  touchX = e.touches[0].clientX;
+  touchY = e.touches[0].clientY;
+});
+canvas.addEventListener('touchmove', e => {
+  const newX = e.touches[0].clientX;
+  const newY = e.touches[0].clientY;
+  ship.x += newX - touchX;
+  ship.y += newY - touchY;
+  touchX = newX; touchY = newY;
+  if (ship.x < 0) ship.x = 0;
+  if (ship.x + ship.width > canvas.width) ship.x = canvas.width - ship.width;
+  if (ship.y < 0) ship.y = 0;
+  if (ship.y + ship.height > canvas.height) ship.y = canvas.height - ship.height;
+});
+</script>
+</body>
+</html>
