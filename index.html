@@ -50,7 +50,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-const roomId = prompt("방 번호를 입력하거나 새로 만들 번호를 입력하세요. 자동매치가 필요한 경우 자동매치 라고 입력하세요:");
+const roomId = prompt("방 번호를 입력하거나 새로 만들 번호를 입력하세요. 자동매치가 필요한 경우 입력하지 말고 확인을 누르세요.:");
 const playerId = Math.random().toString(36).substring(2, 10);
 let opponentId = null;
 
