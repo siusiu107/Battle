@@ -65,7 +65,7 @@ get(roomRef).then(snapshot => {
   if (!data) {
     set(roomRef, { players: { [playerId]: { score: 0, gameOver: false } } });
   } else if (Object.keys(data.players || {}).length === 1) {
-    set(ref(db, `rooms/${roomId}/players/${playerId}`), { score: 0, gameOver: false });
+    set(ref(db, `rooms/1v1/${roomId}/players/${playerId}`), { score: 0, gameOver: false });
   } else {
     alert("방이 가득 찼습니다.");
     throw new Error("Room Full");
